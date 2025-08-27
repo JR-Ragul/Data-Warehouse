@@ -1,0 +1,322 @@
+-- 1. Create database
+CREATE DATABASE IF NOT EXISTS DataWarehouse;
+USE DataWarehouse;
+
+CREATE SCHEMA IF NOT EXISTS bronze;
+CREATE SCHEMA IF NOT EXISTS silver;
+CREATE SCHEMA IF NOT EXISTS gold;
+
+
+-- 2. Create required tables
+CREATE TABLE IF NOT EXISTS bronze.crm_cust_info (
+    cst_id INT,
+    cst_key VARCHAR(50),
+    cst_firstname VARCHAR(100),
+    cst_lastname VARCHAR(100),
+    cst_marital_status VARCHAR(20),
+    cst_gndr VARCHAR(10),
+    cst_create_date DATE
+);
+
+CREATE TABLE IF NOT EXISTS bronze.crm_prd_info(
+    prd_id INT,
+    prd_key VARCHAR(50),
+    prd_nm VARCHAR(50),
+    prd_cost VARCHAR(50),
+    prd_line VARCHAR(50),
+    prd_start_dt DATE,
+    prd_end_dt DATE
+);
+
+CREATE TABLE IF NOT EXISTS bronze.crm_sales_details(
+    sls_ord_num VARCHAR(50),
+    sls_prd_key VARCHAR(50),
+    sls_cust_id VARCHAR(50),
+    sls_order_dt DATE,
+    sls_ship_dt DATE,
+    sls_due_dt DATE,
+    sls_sales INT,
+    sls_quantity INT,
+    sls_price INT
+);
+
+CREATE TABLE IF NOT EXISTS bronze.erp_cust(
+    CID VARCHAR(50),
+    BDATE DATE,
+    GEN VARCHAR(7)
+);
+
+CREATE TABLE IF NOT EXISTS bronze.erp_location(
+    CID VARCHAR(50),
+    CNTRY VARCHAR(50)
+);
+
+CREATE TABLE IF NOT EXISTS bronze.erp_category(
+    ID VARCHAR(50),
+    CAT VARCHAR(50),
+    SUBCAT VARCHAR(50),
+    MAINTENANCE VARCHAR(50)
+);
+
+
+
+-- 3. Loading data into the tables with TRUNCATE + timing
+SET @start_total = NOW();
+
+
+-- Customer table
+TRUNCATE TABLE bronze.crm_cust_info;
+LOAD DATA LOCAL INFILE 'C:\\Users\\ASUS\\OneDrive\\Desktop\\source_crm\\cust_info.csv'
+INTO TABLE bronze.crm_cust_info
+FIELDS TERMINATED BY ','
+IGNORE 1 ROWS;
+
+
+
+
+-- Product table
+TRUNCATE TABLE bronze.crm_prd_info;
+LOAD DATA LOCAL INFILE 'C:\\Users\\ASUS\\OneDrive\\Desktop\\source_crm\\prd_info.csv'
+INTO TABLE bronze.crm_prd_info
+FIELDS TERMINATED BY ','
+IGNORE 1 ROWS;
+
+
+-- Sales table
+TRUNCATE TABLE bronze.crm_sales_details;
+LOAD DATA LOCAL INFILE 'C:\\Users\\ASUS\\OneDrive\\Desktop\\source_crm\\sales_details.csv'
+INTO TABLE bronze.crm_sales_details
+FIELDS TERMINATED BY ','
+IGNORE 1 ROWS;
+
+
+-- ERP customer
+TRUNCATE TABLE bronze.erp_cust;
+LOAD DATA LOCAL INFILE 'C:\\Users\\ASUS\\OneDrive\\Desktop\\source_erp\\CUST_AZ12.csv'
+INTO TABLE bronze.erp_cust
+FIELDS TERMINATED BY ','
+IGNORE 1 ROWS;
+
+
+-- ERP location
+TRUNCATE TABLE bronze.erp_location;
+LOAD DATA LOCAL INFILE 'C:\\Users\\ASUS\\OneDrive\\Desktop\\source_erp\\LOC_A101.csv'
+INTO TABLE bronze.erp_location
+FIELDS TERMINATED BY ','
+IGNORE 1 ROWS;
+
+
+-- ERP category
+TRUNCATE TABLE bronze.erp_category;
+LOAD DATA LOCAL INFILE 'C:\\Users\\ASUS\\OneDrive\\Desktop\\source_erp\\PX_CAT_G1V2.csv'
+INTO TABLE bronze.erp_category
+FIELDS TERMINATED BY ','
+IGNORE 1 ROWS;
+
+
+
+-- Creating Tables for the Silver Layer
+
+
+CREATE TABLE IF NOT EXISTS silver.crm_cust_info (
+    cst_id INT,
+    cst_key VARCHAR(50),
+    cst_firstname VARCHAR(100),
+    cst_lastname VARCHAR(100),
+    cst_marital_status VARCHAR(20),
+    cst_gndr VARCHAR(10),
+    cst_create_date DATE
+);
+CREATE TABLE IF NOT EXISTS silver.crm_prd_info(
+    prd_id INT,
+	prd_key VARCHAR(50),
+    cat_id VARCHAR(50),
+    prd_nm VARCHAR(50),
+    prd_cost VARCHAR(50),
+    prd_line VARCHAR(50),
+    prd_start_dt DATE,
+    prd_end_dt DATE
+);
+
+CREATE TABLE IF NOT EXISTS silver.crm_sales_details(
+    sls_ord_num VARCHAR(50),
+    sls_prd_key VARCHAR(50),
+    sls_cust_id VARCHAR(50),
+    sls_order_dt DATE,
+    sls_ship_dt DATE,
+    sls_due_dt DATE,
+    sls_sales INT,
+    sls_quantity INT,
+    sls_price INT
+);
+
+CREATE TABLE IF NOT EXISTS silver.erp_cust(
+    CID VARCHAR(50),
+    BDATE DATE,
+    GEN VARCHAR(7)
+);
+
+CREATE TABLE IF NOT EXISTS silver.erp_location(
+    CID VARCHAR(50),
+    CNTRY VARCHAR(50)
+);
+
+CREATE TABLE IF NOT EXISTS silver.erp_category(
+    ID VARCHAR(50),
+    CAT VARCHAR(50),
+    SUBCAT VARCHAR(50),
+    MAINTENANCE VARCHAR(50)
+);
+
+
+ 
+ 
+ -- clean and load crm_cust_info
+ 
+SET sql_mode = '';
+UPDATE bronze.crm_cust_info
+SET cst_create_date = NULL
+WHERE cst_create_date = '0000-00-00';
+
+truncate table silver.crm_cust_info;
+insert into silver.crm_cust_info(cst_id, cst_key, cst_firstname, cst_lastname, cst_marital_status, cst_gndr, cst_create_date)
+ select cst_id, cst_key, 
+ trim(cst_firstname) as cst_firstname, 
+ trim(cst_lastname) as cst_lastname, 
+	  case when lower(cst_marital_status) = 's' then 'Single'
+		   when lower(cst_marital_status) = 'm' then 'Married'
+		   Else 'n/a' 
+      end cst_marital_status,
+      case when lower(trim(cst_gndr)) = 'f' then 'Female'
+		   when lower(trim(cst_gndr)) = 'm' then 'Male'
+		   Else 'n/a' 
+      end cst_gndr, 
+      cst_create_date 
+from
+(select *, row_number() over(partition by cst_id order by cst_create_date desc) as flag from bronze.crm_cust_info)
+t where flag=1;
+ delete from   silver.crm_cust_info  where cst_id=0;
+
+set sql_mode='';
+select * from bronze.crm_prd_info;
+update bronze.crm_prd_info 
+set prd_end_dt = NULL
+where prd_end_dt = '0000-00-00';
+
+
+TRUNCATE TABLE silver.crm_prd_info;
+insert into silver.crm_prd_info(
+    prd_id ,
+    cat_id ,
+    prd_key ,
+    prd_nm ,
+    prd_cost ,
+    prd_line ,
+    prd_start_dt ,
+    prd_end_dt 
+) 
+select prd_id,replace(substring(prd_key,1,5), '-','_') as cat_id,substring(prd_key,7,length(prd_key)) as prd_key, prd_nm, 
+prd_cost, 
+case when lower(trim(prd_line))='m' then 'Mountain' 
+	when lower(trim(prd_line))='s' then 'Other Sales' 
+	when lower(trim(prd_line))='r' then 'Road' 
+	when lower(trim(prd_line))='t' then 'Touring' 
+    else 'n/a'
+end as prd_line,cast(prd_start_dt as date)as prd_start_dt
+, cast(lead(prd_start_dt) over(partition by prd_key order by prd_start_dt)-1 as date) as prd_end_dt from bronze.crm_prd_info;
+
+
+set sql_mode='';
+update bronze.crm_sales_details 
+set sls_order_dt = NULL
+where sls_order_dt = '0000-00-00';
+
+truncate table silver.crm_sales_details;
+insert into silver.crm_sales_details(sls_ord_num, sls_prd_key, sls_cust_id, sls_order_dt, sls_ship_dt, sls_due_dt, sls_sales, sls_quantity, sls_price) 
+select sls_ord_num, sls_prd_key, sls_cust_id, 
+sls_order_dt, sls_ship_dt, sls_due_dt, CASE 
+        WHEN sls_sales <= 0 OR sls_sales IS NULL THEN sls_quantity * ABS(sls_price)
+        ELSE sls_sales
+    END AS sls_sales, sls_quantity, 
+    CASE 
+        WHEN sls_price <= 0 OR sls_price IS NULL THEN 
+            CASE 
+                WHEN sls_quantity <> 0 THEN sls_sales / sls_quantity
+                ELSE NULL
+            END
+        ELSE sls_price
+    END AS sls_price
+from bronze.crm_sales_details;
+
+
+
+UPDATE bronze.erp_cust
+SET GEN = TRIM(REGEXP_REPLACE(GEN, '[^A-Za-z]', ''))
+WHERE GEN IS NOT NULL;
+
+truncate table silver.erp_cust;
+insert into  silver.erp_cust(CID,BDATE,GEN)
+SELECT 
+     case when CID like 'NAS%' then substring(CID,4,length(cid))
+     else CID
+     end as CID,
+    case when BDATE< '1924-01-01' or BDATE > now() then null
+    else BDATE
+    end as BDATE,
+    CASE 
+        WHEN LOWER(GEN) IN ('f','female') THEN 'Female'
+        WHEN LOWER(GEN) IN ('m','male') THEN 'Male'
+        ELSE 'n/a'
+    END AS GEN
+FROM bronze.erp_cust;
+
+
+
+UPDATE bronze.erp_location
+SET cntry = TRIM(REGEXP_REPLACE(cntry, '[^A-Za-z]', ''))
+WHERE cntry IS NOT NULL;
+
+truncate table silver.erp_location;
+insert into silver.erp_location (CID,CNTRY)
+select replace((CID),'-','') as CID, 
+case when lower(trim(cntry)) in ('US','usa','unitedstates') then 'United States'
+	when lower(trim(cntry)) = 'de' then 'Germany'
+	when lower(trim(cntry)) = 'unitedkingdom' then 'United Kingdom'
+	when lower(trim(cntry)) = '' or null then 'n/a'
+	 else trim(cntry)
+     end as cntry
+from  bronze.erp_location;
+
+
+
+truncate table silver.erp_category;
+insert into silver.erp_category(ID,CAT,SUBCAT,MAINTENANCE)
+select ID, CAT, SUBCAT,MAINTENANCE
+ from bronze.erp_category;
+select distinct MAINTENANCE from bronze.erp_category;
+
+
+create view gold.dim_cust as
+select row_number() over (order by cst_id) as customer_number, ci.cst_id as Customer_ID, ci.cst_key as Customer_key, ci.cst_firstname as First_Name, ci.cst_lastname as Last_Name, 
+ci.cst_marital_status as Marital_Status, 
+case when ci.cst_gndr != null then  ci.cst_gndr 
+		else coalesce(cu.gen,'n/a')
+        end as Gender,
+ ci.cst_create_date as Create_Date, cu.BDATE as Birth_Date,
+ lo.CNTRY as Country
+from silver.crm_cust_info ci left join silver.erp_cust cu on ci.cst_key=cu.CID left join silver.erp_location lo on ci.cst_key=lo.CID;
+
+
+create view  gold.dim_prd as 
+select row_number() over(order by pd.prd_start_dt, pd.prd_key) as Product_Number, pd.prd_id as Product_ID, pd.prd_key as Product_key, pd.cat_id as Category_ID, pd.prd_nm as product_Name,
+ pd.prd_cost as Product_Cost, pd.prd_line as Product_Line, pd.prd_start_dt as Start_Date, ca.CAT as Category, 
+ ca.SUBCAT as Sub_Category,ca.Maintenance
+from silver.crm_prd_info pd left join silver.erp_category ca on pd.cat_id = ca.id where prd_end_dt is null;
+
+
+
+create view gold.facts_sls as
+select sls_ord_num as Order_Number, pr.Product_Number, cu.Customer_ID, sls_order_dt as Order_Date, sls_ship_dt as Shipping_Date, 
+sls_due_dt as Due_Date, sls_sales as Sales_Amount, sls_quantity as Quantity, sls_price as Price
+ from silver.crm_sales_details 
+ sd left join gold.dim_prd pr on sd.sls_prd_key= pr.product_key left join gold.dim_cust cu on sd.sls_cust_id= cu.customer_id ;
